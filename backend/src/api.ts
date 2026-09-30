@@ -12,6 +12,9 @@ import { runBootReconciler } from "./reconciler.js";
 import { eq, inArray, and } from "drizzle-orm";
 import nodemailer from "nodemailer";
 import { setupElasticsearch, indexEmailsBulk, esClient } from "./es.js";
+import cookieParser from "cookie-parser";
+import jwt from "jsonwebtoken";
+import { OAuth2Client } from "google-auth-library";
 
 const app = express();
 
@@ -22,23 +25,110 @@ app.use(
   })
 );
 app.use(express.json({ limit: "50mb" })); // Large CSV payloads
+app.use(cookieParser());
 app.use(pinoHttp({ logger }));
 
+const googleClient = new OAuth2Client(env.GOOGLE_CLIENT_ID);
+
 // ─── Dummy Auth Middleware ───────────────────────────────────────────────────
-// For now, we mock the tenant ID since we haven't built the Google OAuth yet.
-// We'll replace this in Phase 3/5 with real JWT validation.
-app.use(async (req, res, next) => {
-  // Always use the seed tenant for now to simplify testing
-  const tenant = await db.query.tenants.findFirst({
-    where: eq(tenants.googleSub, "seed_test_sub"),
-  });
-  if (!tenant) {
-    res.status(500).json({ error: "Seed tenant not found" });
+// ─── Real Auth Middleware ──────────────────────────────────────────────────────
+const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const token = req.cookies.token;
+  if (!token) {
+    res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  try {
+    const payload = jwt.verify(token, env.JWT_SECRET) as any;
+    // @ts-ignore
+    req.tenantId = payload.tenantId;
+    next();
+  } catch (err) {
+    res.status(401).json({ error: "Invalid token" });
+  }
+};
+
+app.use("/api/senders", requireAuth);
+app.use("/api/campaigns", requireAuth);
+app.use("/api/emails", requireAuth);
+
+// ─── Auth Endpoints ──────────────────────────────────────────────────────────
+app.post("/api/auth/google", async (req, res) => {
+  const { credential } = req.body;
+  if (!credential) {
+    res.status(400).json({ error: "Missing credential" });
+    return;
+  }
+
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    if (!payload || !payload.sub || !payload.email) {
+      throw new Error("Invalid token payload");
+    }
+
+    let tenant = await db.query.tenants.findFirst({
+      where: eq(tenants.googleSub, payload.sub),
+    });
+
+    if (!tenant) {
+      const [newTenant] = await db.insert(tenants).values({
+        email: payload.email,
+        googleSub: payload.sub,
+      }).returning();
+      tenant = newTenant;
+
+      // Auto-create an ethereal sender so the user has something to use
+      try {
+        const testAccount = await nodemailer.createTestAccount();
+        await db.insert(senders).values({
+          tenantId: tenant.id,
+          email: testAccount.user,
+          smtpHost: testAccount.smtp.host,
+          smtpPort: testAccount.smtp.port,
+          smtpUser: testAccount.user,
+          smtpPass: testAccount.pass,
+          hourlyLimit: 100,
+          minDelayMs: 2000,
+        });
+      } catch (err) {
+        logger.error(err, "Failed to auto-create ethereal sender");
+      }
+    }
+
+    const token = jwt.sign({ tenantId: tenant.id, email: tenant.email }, env.JWT_SECRET, { expiresIn: "7d" });
+    
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    res.json({ id: tenant.id, email: tenant.email });
+  } catch (err) {
+    logger.error(err, "Google auth failed");
+    res.status(401).json({ error: "Authentication failed" });
+  }
+});
+
+app.get("/api/auth/me", requireAuth, async (req, res) => {
   // @ts-ignore
-  req.tenantId = tenant.id;
-  next();
+  const tenantId = req.tenantId as string;
+  const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
+  if (!tenant) {
+    res.status(401).json({ error: "Tenant not found" });
+    return;
+  }
+  res.json({ id: tenant.id, email: tenant.email });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  res.clearCookie("token");
+  res.json({ success: true });
 });
 
 // ─── Health Endpoint ─────────────────────────────────────────────────────────
