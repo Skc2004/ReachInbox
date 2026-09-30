@@ -1,0 +1,17 @@
+{
+  "subject": "Hello World!",
+  "body": "This is a test email.",
+  "recipients": [
+    "user1@example.com",
+    "user2@example.com",
+    "user3@example.com"
+  ],
+  "startAt": "2026-10-01T00:00:00.000Z",
+  "delayBetweenMs": 2000,
+  "hourlyLimit": 50,
+  "senderIds": [
+    "a9ed2d15-8c1c-43db-9db8-2c6331308eef",
+    "10ed8502-8e1c-4fb2-88ad-6e3b2afc04e6",
+    "d00edec2-8521-448d-9e05-9e231c7d63c6"
+  ]
+}
