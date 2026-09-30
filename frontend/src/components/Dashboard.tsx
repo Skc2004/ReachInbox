@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Mail, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
 
-const API_BASE = 'http://localhost:3000/api';
+const API_BASE = '/api';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({

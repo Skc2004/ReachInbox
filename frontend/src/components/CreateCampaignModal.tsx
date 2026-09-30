@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { X, Loader2 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:3000/api';
+const API_BASE = '/api';
 
 interface CreateCampaignModalProps {
   onClose: () => void;

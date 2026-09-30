@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  # ─── Databases & Caching ──────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: reachinbox
+      POSTGRES_PASSWORD: reachinbox_secret
+      POSTGRES_DB: reachinbox
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redisdata_prod:/data
+    networks:
+      - internal
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - esdata_prod:/usr/share/elasticsearch/data
+    networks:
+      - internal
+
+  # ─── Backend Services ────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: always
+    command: npm run start
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://reachinbox:reachinbox_secret@postgres:5432/reachinbox
+      REDIS_URL: redis://redis:6379
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      JWT_SECRET: ${JWT_SECRET:-please_set_a_secure_jwt_secret_here}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      CORS_ORIGIN: http://localhost:80
+    depends_on:
+      - postgres
+      - redis
+      - elasticsearch
+    networks:
+      - internal
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: always
+    command: npm run worker
+    # We can easily scale this by doing `docker-compose up --scale worker=3`
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://reachinbox:reachinbox_secret@postgres:5432/reachinbox
+      REDIS_URL: redis://redis:6379
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      WORKER_CONCURRENCY: 10
+    depends_on:
+      - postgres
+      - redis
+      - elasticsearch
+    networks:
+      - internal
+
+  # ─── Frontend & Proxy ────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "80:80"
+    networks:
+      - internal
+      - external
+
+volumes:
+  pgdata_prod:
+  redisdata_prod:
+  esdata_prod:
+
+networks:
+  internal:
+    internal: true
+  external:

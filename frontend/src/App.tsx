@@ -14,7 +14,7 @@ function App() {
 
   useEffect(() => {
     // Check if we are already logged in
-    axios.get('http://localhost:3000/api/auth/me')
+    axios.get('/api/auth/me')
       .then(res => {
         setUser(res.data);
       })
@@ -28,7 +28,7 @@ function App() {
 
   const handleGoogleSuccess = async (credentialResponse: any) => {
     try {
-      const res = await axios.post('http://localhost:3000/api/auth/google', {
+      const res = await axios.post('/api/auth/google', {
         credential: credentialResponse.credential
       });
       setUser(res.data);
@@ -40,7 +40,7 @@ function App() {
 
   const handleLogout = async () => {
     try {
-      await axios.post('http://localhost:3000/api/auth/logout');
+      await axios.post('/api/auth/logout');
       setUser(null);
     } catch (err) {
       console.error(err);

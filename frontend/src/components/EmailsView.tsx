@@ -4,7 +4,7 @@ import { format } from 'date-fns';
 import { Search, Plus, RefreshCw, AlertCircle } from 'lucide-react';
 import CreateCampaignModal from './CreateCampaignModal';
 
-const API_BASE = 'http://localhost:3000/api';
+const API_BASE = '/api';
 
 interface EmailRecord {
   id: string;
