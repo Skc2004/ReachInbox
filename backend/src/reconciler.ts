@@ -4,6 +4,7 @@ import { emailQueue } from "./queue.js";
 import { logger } from "./logger.js";
 import { eq, or, inArray, lt, and } from "drizzle-orm";
 import { env } from "./config.js";
+import { updateEmailStatusInES } from "./es.js";
 
 /**
  * Boot-time reconciler. Runs exactly ONCE on server start.
@@ -81,6 +82,11 @@ export async function runBootReconciler() {
           batch.map((e) => e.id)
         )
       );
+      
+    // Sync to ES
+    for (const e of batch) {
+      updateEmailStatusInES(e.id, { status: "scheduled" }).catch(() => {});
+    }
 
     reconciledOrphans += batch.length;
   }
@@ -96,11 +102,16 @@ export async function runBootReconciler() {
         eq(emails.status, "processing"),
         lt(emails.updatedAt, staleThreshold)
       )
-    );
+    )
+    .returning({ id: emails.id });
 
   // In Drizzle for postgres, rowCount is available if we use the underlying result
   // But wait, the standard update returns the pg result
-  resetProcessing = staleResult.rowCount ?? 0;
+  resetProcessing = staleResult.length;
+  
+  for (const row of staleResult) {
+    updateEmailStatusInES(row.id, { status: "scheduled" }).catch(() => {});
+  }
 
   logger.info(
     `Reconciler finished: enqueued ${reconciledOrphans} orphans, reset ${resetProcessing} stale processing rows.`

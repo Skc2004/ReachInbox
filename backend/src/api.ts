@@ -11,6 +11,7 @@ import { env } from "./config.js";
 import { runBootReconciler } from "./reconciler.js";
 import { eq, inArray, and } from "drizzle-orm";
 import nodemailer from "nodemailer";
+import { setupElasticsearch, indexEmailsBulk, esClient } from "./es.js";
 
 const app = express();
 
@@ -199,12 +200,7 @@ app.post("/api/campaigns/schedule", async (req, res) => {
           .insert(emails)
           .values(chunk)
           .onConflictDoNothing()
-          .returning({
-            id: emails.id,
-            idempotencyKey: emails.idempotencyKey,
-            scheduledAt: emails.scheduledAt,
-            senderId: emails.senderId,
-          });
+          .returning();
         
         emailsToEnqueue.push(...(inserted as any));
       }
@@ -221,6 +217,11 @@ app.post("/api/campaigns/schedule", async (req, res) => {
     campaignId: newCampaignId!,
     totalRecipients: emailsToEnqueue.length,
   });
+
+  // Sync with ES asynchronously (Phase 5)
+  indexEmailsBulk(emailsToEnqueue).catch((err) =>
+    logger.error(err, "Failed to async sync emails to ES")
+  );
 
   // Background Outbox flush
   // We use chunks of 500 for BullMQ too
@@ -265,11 +266,56 @@ app.post("/api/campaigns/schedule", async (req, res) => {
   })();
 });
 
+// ─── Search Emails ───────────────────────────────────────────────────────────
+app.get("/api/emails", async (req, res) => {
+  // @ts-ignore
+  const tenantId = req.tenantId as string;
+  const { status, q, page = "1", limit = "10" } = req.query;
+  
+  const must: any[] = [{ term: { tenantId } }];
+  
+  if (status) {
+    must.push({ term: { status } });
+  }
+  
+  if (q) {
+    must.push({
+      multi_match: {
+        query: q as string,
+        fields: ["subject", "recipientEmail", "lastError"]
+      }
+    });
+  }
+
+  const from = (Number(page) - 1) * Number(limit);
+  
+  try {
+    const result = await esClient.search({
+      index: "emails",
+      query: { bool: { must } },
+      from,
+      size: Number(limit),
+      sort: [{ scheduledAt: "desc" }]
+    });
+    
+    res.json({
+      total: (result.hits.total as any).value,
+      data: result.hits.hits.map(h => h._source)
+    });
+  } catch (err) {
+    logger.error(err, "ES search failed");
+    res.status(500).json({ error: "Search failed" });
+  }
+});
+
 // Start the server
 const port = env.API_PORT;
 app.listen(port, async () => {
   logger.info(`🚀 API Server running on port ${port}`);
-  
+
+  // Initialize Elasticsearch
+  await setupElasticsearch();
+
   // Run the reconciler EXACTLY ONCE on boot
   try {
     await runBootReconciler();

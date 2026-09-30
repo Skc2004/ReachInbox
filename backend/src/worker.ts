@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { redisConnectionOptions, redis } from "./redis.js";
 import { db } from "./db/index.js";
 import { emails, campaigns, senders } from "./db/schema.js";
+import { updateEmailStatusInES } from "./es.js";
 import { EMAIL_QUEUE } from "./queue.js";
 import { logger } from "./logger.js";
 
@@ -66,6 +67,7 @@ const worker = new Worker(
         .update(emails)
         .set({ status: "failed", lastError: "Missing senderId at processing time", updatedAt: new Date() })
         .where(eq(emails.id, emailId));
+      updateEmailStatusInES(emailId, { status: "failed", lastError: "Missing senderId at processing time" }).catch(() => {});
       throw new Error(`Missing senderId for email ${emailId}`);
     }
 
@@ -75,6 +77,7 @@ const worker = new Worker(
     
     // Set to processing
     await db.update(emails).set({ status: "processing", updatedAt: new Date() }).where(eq(emails.id, emailId));
+    updateEmailStatusInES(emailId, { status: "processing" }).catch(() => {});
 
     const [campaign] = await db.query.campaigns.findMany({ where: eq(campaigns.id, campaignId) });
     const [sender] = await db.query.senders.findMany({ where: eq(senders.id, senderId) });
@@ -112,6 +115,7 @@ const worker = new Worker(
           updatedAt: new Date(),
         })
         .where(eq(emails.id, emailId));
+      updateEmailStatusInES(emailId, { status: "scheduled" }).catch(() => {});
 
       // Use MoveToDelayed to push the job to the next window safely
       await job.moveToDelayed(Date.now() + delayToNextHour, job.token!);
@@ -131,6 +135,7 @@ const worker = new Worker(
       await redis.decr(hourKey);
       
       await db.update(emails).set({ status: "scheduled", updatedAt: new Date() }).where(eq(emails.id, emailId));
+      updateEmailStatusInES(emailId, { status: "scheduled" }).catch(() => {});
       logger.info(`Pacing delay is ${delayRequired}ms (>10s). Moving to delayed.`);
       await job.moveToDelayed(Date.now() + delayRequired, job.token!);
       throw new DelayedError();
@@ -164,6 +169,7 @@ const worker = new Worker(
         .update(emails)
         .set({ status: "sent", sentAt: new Date(), updatedAt: new Date() })
         .where(eq(emails.id, emailId));
+      updateEmailStatusInES(emailId, { status: "sent", sentAt: new Date() }).catch(() => {});
         
     } catch (err: any) {
       logger.error(err, `SMTP Send Failed for email ${emailId}`);
@@ -176,6 +182,7 @@ const worker = new Worker(
         .update(emails)
         .set({ status: "failed", lastError: err.message, updatedAt: new Date() })
         .where(eq(emails.id, emailId));
+      updateEmailStatusInES(emailId, { status: "failed", lastError: err.message }).catch(() => {});
       
       throw err; // Trigger BullMQ retry (exponential backoff will kick in)
     }
