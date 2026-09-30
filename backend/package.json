@@ -6,6 +6,9 @@
   "scripts": {
     "api": "tsx src/api.ts",
     "worker": "tsx src/worker.ts",
+    "start": "node dist/api.js",
+    "worker:prod": "node dist/worker.js",
+    "start:all": "concurrently \"npm run start\" \"npm run worker:prod\"",
     "chaos": "tsx scripts/chaos.ts",
     "dev": "concurrently -k -n api,worker -c blue,green \"npm run api\" \"npm run worker\"",
     "build": "tsc",
@@ -47,7 +50,7 @@
     "@types/pg": "^8.11.11",
     "@typescript-eslint/eslint-plugin": "^8.19.0",
     "@typescript-eslint/parser": "^8.19.0",
-    "concurrently": "^9.1.0",
+    "concurrently": "^9.2.4",
     "drizzle-kit": "^0.30.0",
     "eslint": "^8.57.0",
     "prettier": "^3.4.0",

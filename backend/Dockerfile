@@ -20,5 +20,5 @@ COPY --from=builder /app/src ./src
 # Expose API port
 EXPOSE 3000
 
-# Start command will be overridden by docker-compose for api/worker
-CMD ["npm", "run", "start"]
+# Start command will be overridden by docker-compose for api/worker, but defaults to running both for free-tier PaaS
+CMD ["npm", "run", "start:all"]
