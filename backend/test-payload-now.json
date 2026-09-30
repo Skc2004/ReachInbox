@@ -1,0 +1,18 @@
+{
+  "subject": "Hello Now!",
+  "body": "This is a test email sent immediately.",
+  "recipients": [
+    "test_now1@example.com",
+    "test_now2@example.com",
+    "test_now3@example.com",
+    "test_now4@example.com"
+  ],
+  "startAt": "2024-01-01T00:00:00.000Z",
+  "delayBetweenMs": 2000,
+  "hourlyLimit": 50,
+  "senderIds": [
+    "a9ed2d15-8c1c-43db-9db8-2c6331308eef",
+    "10ed8502-8e1c-4fb2-88ad-6e3b2afc04e6",
+    "d00edec2-8521-448d-9e05-9e231c7d63c6"
+  ]
+}
