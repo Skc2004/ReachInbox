@@ -186,13 +186,51 @@ const worker = new Worker(
   }
 );
 
+import { env } from "./config.js";
+import { sql } from "drizzle-orm";
+
+async function checkAndNotifyCompletion(job: Job) {
+  const { campaignId, totalRecipients } = job.data;
+  if (!campaignId || !totalRecipients) return;
+
+  // Check how many emails for this campaign are in terminal states
+  const result = await db.execute(
+    sql`SELECT count(*) as c FROM emails WHERE campaign_id = ${campaignId} AND status IN ('sent', 'failed')`
+  );
+  const completedCount = parseInt(result.rows[0]?.c as string, 10) || 0;
+
+  if (completedCount >= totalRecipients) {
+    logger.info(`Campaign ${campaignId} completed! Firing Slack webhook...`);
+    if (env.SLACK_WEBHOOK_URL) {
+      try {
+        await fetch(env.SLACK_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: `🎉 *Campaign Completed* 🎉\nCampaign ID: \`${campaignId}\`\nTotal Recipients processed: ${completedCount}/${totalRecipients}`,
+          }),
+        });
+        logger.info("Slack webhook sent.");
+      } catch (err) {
+        logger.error(err, "Failed to send Slack webhook");
+      }
+    }
+  }
+}
+
 worker.on("completed", (job) => {
   logger.debug(`Job ${job.id} completed successfully.`);
+  checkAndNotifyCompletion(job).catch((err) => logger.error(err));
 });
 
 worker.on("failed", (job, err) => {
   if (err.name !== "DelayedError") {
     logger.error(`Job ${job?.id} failed with error: ${err.message}`);
+    // Check if it's the final attempt
+    const maxAttempts = job?.opts?.attempts || 3;
+    if (job && job.attemptsMade >= maxAttempts) {
+      checkAndNotifyCompletion(job).catch((e) => logger.error(e));
+    }
   }
 });
 

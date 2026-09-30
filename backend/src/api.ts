@@ -237,6 +237,7 @@ app.post("/api/campaigns/schedule", async (req, res) => {
               emailId: e.id,
               campaignId: newCampaignId,
               senderId: e.senderId,
+              totalRecipients: uniqueRecipients.length,
             },
             opts: {
               jobId: e.idempotencyKey, // D3

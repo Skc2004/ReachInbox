@@ -43,7 +43,8 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(32),
   GOOGLE_CLIENT_ID: z.string().min(1),
 
-  // ── Slack OAuth (optional — Slack features disabled if missing) ─────────
+  // ── Slack Integration ────────────────────────────────────────────────────
+  SLACK_WEBHOOK_URL: z.string().optional().default(""),
   SLACK_CLIENT_ID: z.string().optional().default(""),
   SLACK_CLIENT_SECRET: z.string().optional().default(""),
   SLACK_REDIRECT_URI: z.string().optional().default(""),
